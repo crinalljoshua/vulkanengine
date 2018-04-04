@@ -12,10 +12,11 @@
 #include <stb_image.h>
 #include <tiny_obj_loader.h>
 
+#include "Utils.h"
 #include "Vertex.h"
 #include "QueueFamilyIndices.h"
 #include "SwapchainSupportDetails.h"
-#include "UniformBufferObject.h"
+#include "UniformManager.h"
 #include "DeviceManager.h"
 #include "SwapchainManager.h"
 
@@ -147,11 +148,11 @@ private:
     std::vector<uint32_t> indices;
 
     // Uniform buffer
-    VkBuffer uniformBuffer;
-    VkDeviceMemory uniformBufferMemory;
+    // VkBuffer uniformBuffer;
+    // VkDeviceMemory uniformBufferMemory;
 
-    VkBuffer dynamicUniformBuffer;
-    VkDeviceMemory dynamicMemory;
+    // VkBuffer dynamicUniformBuffer;
+    // VkDeviceMemory dynamicMemory;
 
     // Descriptor pool/set
     VkDescriptorPool descriptorPool;
@@ -224,8 +225,8 @@ private:
         createVertexBuffer();
         createIndexBuffer();
 
-        createUniformBuffer();
-        createDynamicUniformBuffer();
+        UniformManager::instance().createUniformBuffer();
+        UniformManager::instance().createDynamicUniformBuffer(dynamicAlignment, objects.size());
 
         createDescriptorPool();
         createDescriptorSet();
@@ -613,7 +614,7 @@ private:
         VkMemoryAllocateInfo allocInfo = {};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+        allocInfo.memoryTypeIndex = Utils::findMemoryType(memRequirements.memoryTypeBits, properties);
 
         if (vkAllocateMemory(device, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS)
         {
@@ -778,7 +779,7 @@ private:
         VkMemoryAllocateInfo allocInfo = {};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+        allocInfo.memoryTypeIndex = Utils::findMemoryType(memRequirements.memoryTypeBits, properties);
 
         if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) 
         {
@@ -890,27 +891,27 @@ private:
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
-    void createUniformBuffer() 
-    {
-        VkDeviceSize bufferSize = sizeof(UniformBufferObject::StaticUbo);
-        createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffer, uniformBufferMemory);
-    }
+    // void createUniformBuffer() 
+    // {
+    //     VkDeviceSize bufferSize = sizeof(UniformManager::StaticUbo);
+    //     createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffer, uniformBufferMemory);
+    // }
 
-    void createDynamicUniformBuffer()
-    {
-        // Calculate required alignment based on minimum device offset alignment
-        size_t minUboAlignment = DeviceManager::instance().getProperties().limits.minUniformBufferOffsetAlignment;
+    // void createDynamicUniformBuffer()
+    // {
+    //     // Calculate required alignment based on minimum device offset alignment
+    //     size_t minUboAlignment = DeviceManager::instance().getProperties().limits.minUniformBufferOffsetAlignment;
         
-        dynamicAlignment = sizeof(UniformBufferObject::DynamicUbo);
+    //     dynamicAlignment = sizeof(UniformManager::DynamicUbo);
         
-        if (minUboAlignment > 0)
-        {
-            dynamicAlignment = (dynamicAlignment + minUboAlignment - 1) & ~(minUboAlignment - 1);
-        }
+    //     if (minUboAlignment > 0)
+    //     {
+    //         dynamicAlignment = (dynamicAlignment + minUboAlignment - 1) & ~(minUboAlignment - 1);
+    //     }
 
-        VkDeviceSize bufferSize = objects.size() * dynamicAlignment;
-        createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, dynamicUniformBuffer, dynamicMemory);
-    }
+    //     VkDeviceSize bufferSize = objects.size() * dynamicAlignment;
+    //     createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, dynamicUniformBuffer, dynamicMemory);
+    // }
 
     void createDescriptorPool()
     {
@@ -952,14 +953,14 @@ private:
         }
 
         VkDescriptorBufferInfo dynamicBufferInfo = {};
-        dynamicBufferInfo.buffer = dynamicUniformBuffer;
+        dynamicBufferInfo.buffer = UniformManager::instance().getDynamicUniformBuffer();
         dynamicBufferInfo.offset = 0;
-        dynamicBufferInfo.range = sizeof(UniformBufferObject::DynamicUbo);
+        dynamicBufferInfo.range = sizeof(UniformManager::DynamicUbo);
 
         VkDescriptorBufferInfo staticBufferInfo = {};
-        staticBufferInfo.buffer = uniformBuffer;
+        staticBufferInfo.buffer = UniformManager::instance().getCoherentUniformBuffer();
         staticBufferInfo.offset = 0;
-        staticBufferInfo.range = sizeof(UniformBufferObject::StaticUbo);
+        staticBufferInfo.range = sizeof(UniformManager::StaticUbo);
 
         VkDescriptorImageInfo imageInfo = {};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1205,7 +1206,7 @@ private:
 
         if (vkCreateImageView(DeviceManager::instance().getDevice(), &viewInfo, nullptr, &imageView) != VK_SUCCESS) 
         {
-            throw std::runtime_error("failed to create texture image view!");
+            throw std::runtime_error("Error: Failed to create texture image view");
         }
 
         return imageView;
@@ -1308,27 +1309,29 @@ private:
         proj[1][1] *= -1;
 
 
-        UniformBufferObject::DynamicUbo dynamicUbos[2];
+        UniformManager::DynamicUbo dynamicUbos[2];
 
         // Model matrix - rotate main model 45 degrees per second
-        UniformBufferObject::DynamicUbo ubo1 = UniformBufferObject::createDynamicUbo(glm::rotate(glm::mat4(1.0f), 
+        UniformManager::DynamicUbo ubo1 = UniformManager::createDynamicUbo(glm::rotate(glm::mat4(1.0f), 
                                                              time * glm::radians(90.0f), 
                                                              glm::vec3(0.0f, 1.0f, 0.0f)), view);
 
         // Model matrix - translate ground plane below main model
-        UniformBufferObject::DynamicUbo ubo2 = UniformBufferObject::createDynamicUbo(glm::translate(glm::mat4(1.0f), 
+        UniformManager::DynamicUbo ubo2 = UniformManager::createDynamicUbo(glm::translate(glm::mat4(1.0f), 
                                                              glm::vec3(0.0f, -3.0f, 0.0f)), view);
 
         dynamicUbos[0] = ubo1;
         dynamicUbos[1] = ubo2;
 
         VkDevice device = DeviceManager::instance().getDevice();
+        VkDeviceMemory dynamicMemory = UniformManager::instance().getDynamicMemory();
+        VkDeviceMemory uniformBufferMemory = UniformManager::instance().getCoherentMemory();
 
         VkMappedMemoryRange memoryRange;
         memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
         memoryRange.pNext = nullptr;
         memoryRange.memory = dynamicMemory;
-        memoryRange.size = sizeof(UniformBufferObject::DynamicUbo);
+        memoryRange.size = sizeof(UniformManager::DynamicUbo);
 
         // Update dynamic uniform buffer data
         for (int i = 0; i < objects.size(); i++)
@@ -1347,7 +1350,7 @@ private:
         }
         
         // Update static uniform buffer data
-        UniformBufferObject::StaticUbo ubo;
+        UniformManager::StaticUbo ubo;
 
         ubo.view = view;
         ubo.proj = proj;
@@ -1430,10 +1433,7 @@ private:
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
         // Destroy uniform buffers
-        vkDestroyBuffer(device, dynamicUniformBuffer, nullptr);
-        vkFreeMemory(device, dynamicMemory, nullptr);
-        vkDestroyBuffer(device, uniformBuffer, nullptr);
-        vkFreeMemory(device, uniformBufferMemory, nullptr);
+        UniformManager::instance().cleanupUniformBuffers();
 
         // Destroy index buffer
         vkDestroyBuffer(device, indexBuffer, nullptr);
@@ -1572,22 +1572,6 @@ private:
         }
 
         return extensions;
-    }
-
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) 
-    {
-        VkPhysicalDeviceMemoryProperties memProperties;
-        vkGetPhysicalDeviceMemoryProperties(DeviceManager::instance().getPhysicalDevice(), &memProperties);
-
-        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) 
-        {
-            if (typeFilter & (1 << i) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
-            {
-                return i;
-            }
-        }
-
-        throw std::runtime_error("Error: Failed to find suitable memory type");
     }
 
     void createInstance()

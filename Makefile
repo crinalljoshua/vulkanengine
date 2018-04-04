@@ -6,7 +6,7 @@ CFLAGS = -std=c++11 -g -I$(VULKAN_SDK_PATH)/include -I$(STB_INCLUDE_PATH) -I$(TI
 LDFLAGS = -L$(VULKAN_SDK_PATH)/lib `pkg-config --static --libs glfw3` -lvulkan
 
 VulkanApplication: main.cpp
-	g++ $(CFLAGS) -o VulkanApplication Vertex.cpp DeviceManager.cpp SwapchainManager.cpp main.cpp $(LDFLAGS)
+	g++ $(CFLAGS) -o VulkanApplication Vertex.cpp DeviceManager.cpp SwapchainManager.cpp UniformManager.cpp Utils.cpp main.cpp $(LDFLAGS)
 
 .PHONY: test clean
 
