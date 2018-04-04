@@ -150,8 +150,8 @@ private:
     VkBuffer uniformBuffer;
     VkDeviceMemory uniformBufferMemory;
 
-    // VkBuffer dynamicUniformBuffer;
-    // VkDeviceMemory dynamicMemory; later
+    VkBuffer dynamicUniformBuffer;
+    VkDeviceMemory dynamicMemory;
 
     // Descriptor pool/set
     VkDescriptorPool descriptorPool;
@@ -220,11 +220,13 @@ private:
 
         loadModel("models/sphere.obj");
         loadModel("models/plane.obj");
-        // Load plane.obj
 
         createVertexBuffer();
         createIndexBuffer();
+
         createUniformBuffer();
+        createDynamicUniformBuffer();
+
         createDescriptorPool();
         createDescriptorSet();
         createCommandBuffers();
@@ -346,21 +348,28 @@ private:
 
     void createDescriptorSetLayout()
     {
-        VkDescriptorSetLayoutBinding uboLayoutBinding = {};
-        uboLayoutBinding.binding = 0;
-        uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        uboLayoutBinding.descriptorCount = 1;
-        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        uboLayoutBinding.pImmutableSamplers = nullptr;
+        VkDescriptorSetLayoutBinding staticUboLayoutBinding = {};
+        staticUboLayoutBinding.binding = 0;
+        staticUboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        staticUboLayoutBinding.descriptorCount = 1;
+        staticUboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        staticUboLayoutBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding dynamicUboLayoutBinding = {};
+        dynamicUboLayoutBinding.binding = 1;
+        dynamicUboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        dynamicUboLayoutBinding.descriptorCount = 1;
+        dynamicUboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        dynamicUboLayoutBinding.pImmutableSamplers = nullptr;
 
         VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
-        samplerLayoutBinding.binding = 1;
+        samplerLayoutBinding.binding = 2;
         samplerLayoutBinding.descriptorCount = 1;
         samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         samplerLayoutBinding.pImmutableSamplers = nullptr;
         samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+        std::array<VkDescriptorSetLayoutBinding, 3> bindings = { staticUboLayoutBinding, dynamicUboLayoutBinding, samplerLayoutBinding };
         VkDescriptorSetLayoutCreateInfo layoutInfo = {};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -881,12 +890,18 @@ private:
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
-    void createUniformBuffer()
+    void createUniformBuffer() 
+    {
+        VkDeviceSize bufferSize = sizeof(UniformBufferObject::StaticUbo);
+        createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffer, uniformBufferMemory);
+    }
+
+    void createDynamicUniformBuffer()
     {
         // Calculate required alignment based on minimum device offset alignment
         size_t minUboAlignment = DeviceManager::instance().getProperties().limits.minUniformBufferOffsetAlignment;
         
-        dynamicAlignment = sizeof(UniformBufferObject);
+        dynamicAlignment = sizeof(UniformBufferObject::DynamicUbo);
         
         if (minUboAlignment > 0)
         {
@@ -894,16 +909,18 @@ private:
         }
 
         VkDeviceSize bufferSize = objects.size() * dynamicAlignment;
-        createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, uniformBuffer, uniformBufferMemory);
+        createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, dynamicUniformBuffer, dynamicMemory);
     }
 
     void createDescriptorPool()
     {
-        std::array<VkDescriptorPoolSize, 2> poolSizes = {};
+        std::array<VkDescriptorPoolSize, 3> poolSizes = {};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         poolSizes[0].descriptorCount = 1;
-        poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[1].descriptorCount = 1;
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[2].descriptorCount = 1;
 
         VkDescriptorPoolCreateInfo poolInfo = {};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -934,17 +951,22 @@ private:
             throw std::runtime_error("Error: Failed to allocate descriptor set");
         }
 
-        VkDescriptorBufferInfo bufferInfo = {};
-        bufferInfo.buffer = uniformBuffer;
-        bufferInfo.offset = 0;
-        bufferInfo.range = sizeof(UniformBufferObject);
+        VkDescriptorBufferInfo dynamicBufferInfo = {};
+        dynamicBufferInfo.buffer = dynamicUniformBuffer;
+        dynamicBufferInfo.offset = 0;
+        dynamicBufferInfo.range = sizeof(UniformBufferObject::DynamicUbo);
+
+        VkDescriptorBufferInfo staticBufferInfo = {};
+        staticBufferInfo.buffer = uniformBuffer;
+        staticBufferInfo.offset = 0;
+        staticBufferInfo.range = sizeof(UniformBufferObject::StaticUbo);
 
         VkDescriptorImageInfo imageInfo = {};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = textureImageView;
         imageInfo.sampler = textureSampler;
 
-        std::array<VkWriteDescriptorSet, 2> descriptorWrites = {};
+        std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
 
         descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrites[0].dstSet = descriptorSet;
@@ -952,15 +974,23 @@ private:
         descriptorWrites[0].dstArrayElement = 0;
         descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         descriptorWrites[0].descriptorCount = 1;
-        descriptorWrites[0].pBufferInfo = &bufferInfo;
+        descriptorWrites[0].pBufferInfo = &dynamicBufferInfo;
 
         descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrites[1].dstSet = descriptorSet;
         descriptorWrites[1].dstBinding = 1;
         descriptorWrites[1].dstArrayElement = 0;
-        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].pImageInfo = &imageInfo;
+        descriptorWrites[1].pBufferInfo = &staticBufferInfo;
+
+        descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[2].dstSet = descriptorSet;
+        descriptorWrites[2].dstBinding = 2;
+        descriptorWrites[2].dstArrayElement = 0;
+        descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[2].descriptorCount = 1;
+        descriptorWrites[2].pImageInfo = &imageInfo;
 
         vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
@@ -1263,65 +1293,69 @@ private:
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-        UniformBufferObject ubos[2];
+        VkExtent2D swapchainExtent = SwapchainManager::instance().getExtent();
 
-        // Model matrix - rotate 45 degrees per second
-        UniformBufferObject ubo1 = createUniformBufferObject(glm::rotate(glm::mat4(1.0f), 
+        glm::mat4 view = glm::lookAt(glm::vec3(4.0f, 4.0f, 4.0f), 
+                                     glm::vec3(0.0f, 0.0f, 0.0f), 
+                                     glm::vec3(0.0f, 1.0f, 0.0f));
+
+        // Projection matrix - 45 degree fov, aspect ratio and near/far planes
+        glm::mat4 proj = glm::perspective(glm::radians(45.0f), 
+                                          swapchainExtent.width / (float)swapchainExtent.height, 
+                                          0.1f, 
+                                          10.0f);
+        // GLM designed for OpenGL - must flip Y coordinate of clip coords
+        proj[1][1] *= -1;
+
+
+        UniformBufferObject::DynamicUbo dynamicUbos[2];
+
+        // Model matrix - rotate main model 45 degrees per second
+        UniformBufferObject::DynamicUbo ubo1 = UniformBufferObject::createDynamicUbo(glm::rotate(glm::mat4(1.0f), 
                                                              time * glm::radians(90.0f), 
-                                                             glm::vec3(0.0f, 0.0f, 1.0f)));
+                                                             glm::vec3(0.0f, 1.0f, 0.0f)), view);
 
-        // Model matrix - rotate 45 degrees per second
-        UniformBufferObject ubo2 = createUniformBufferObject(glm::translate(glm::mat4(1.0f), 
-                                                             glm::vec3(0.0f, -3.0f, 0.0f)));
+        // Model matrix - translate ground plane below main model
+        UniformBufferObject::DynamicUbo ubo2 = UniformBufferObject::createDynamicUbo(glm::translate(glm::mat4(1.0f), 
+                                                             glm::vec3(0.0f, -3.0f, 0.0f)), view);
 
-        ubos[0] = ubo1;
-        ubos[1] = ubo2;
+        dynamicUbos[0] = ubo1;
+        dynamicUbos[1] = ubo2;
 
         VkDevice device = DeviceManager::instance().getDevice();
 
         VkMappedMemoryRange memoryRange;
         memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
         memoryRange.pNext = nullptr;
-        memoryRange.memory = uniformBufferMemory;
-        memoryRange.size = sizeof(UniformBufferObject);
+        memoryRange.memory = dynamicMemory;
+        memoryRange.size = sizeof(UniformBufferObject::DynamicUbo);
 
+        // Update dynamic uniform buffer data
         for (int i = 0; i < objects.size(); i++)
         {
+            // Calculate memory range offset
             memoryRange.offset = i * dynamicAlignment;
 
+            // Map memory and copy data to mapping
             void* data;
-            vkMapMemory(device, uniformBufferMemory, i * dynamicAlignment, dynamicAlignment, 0, &data);
-            
-            memcpy(data, &ubos[i], sizeof(UniformBufferObject));
+            vkMapMemory(device, dynamicMemory, i * dynamicAlignment, dynamicAlignment, 0, &data);
+            memcpy(data, &dynamicUbos[i], sizeof(dynamicUbos[i]));
+
+            // Flush modified memory ranges and unmap memory
             vkFlushMappedMemoryRanges(device, 1, &memoryRange);
-            vkUnmapMemory(device, uniformBufferMemory);
+            vkUnmapMemory(device, dynamicMemory);
         }
-    }
+        
+        // Update static uniform buffer data
+        UniformBufferObject::StaticUbo ubo;
 
-    UniformBufferObject createUniformBufferObject(glm::mat4 modelMatrix)
-    {
-        VkExtent2D swapchainExtent = SwapchainManager::instance().getExtent();
-        UniformBufferObject ubo = {};
+        ubo.view = view;
+        ubo.proj = proj;
 
-        ubo.model = modelMatrix;
-
-        // View matrix - look at geometry from 45 degree angle
-        ubo.view = glm::lookAt(glm::vec3(4.0f, 4.0f, 4.0f), 
-                               glm::vec3(0.0f, 0.0f, 0.0f), 
-                               glm::vec3(0.0f, 1.0f, 0.0f));
-
-        // Projection matrix - 45 degree fov, aspect ratio and near/far planes
-        ubo.proj = glm::perspective(glm::radians(45.0f), 
-                                    swapchainExtent.width / (float)swapchainExtent.height, 
-                                    0.1f, 
-                                    10.0f);
-        // GLM designed for OpenGL - must flip Y coordinate of clip coords
-        ubo.proj[1][1] *= -1;
-
-        // Normal matrix
-        ubo.norm = glm::transpose(glm::inverse(ubo.model * ubo.view));
-
-        return ubo;
+        void* data;
+        vkMapMemory(device, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
+        memcpy(data, &ubo, sizeof(ubo));
+        vkUnmapMemory(device, uniformBufferMemory);
     }
 
     void drawFrame()
@@ -1395,7 +1429,9 @@ private:
         vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
-        // Destroy uniform buffer
+        // Destroy uniform buffers
+        vkDestroyBuffer(device, dynamicUniformBuffer, nullptr);
+        vkFreeMemory(device, dynamicMemory, nullptr);
         vkDestroyBuffer(device, uniformBuffer, nullptr);
         vkFreeMemory(device, uniformBufferMemory, nullptr);
 

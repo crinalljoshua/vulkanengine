@@ -1,17 +1,19 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(binding = 0) uniform UniformBufferObject
+// Dynamic uniform data
+layout(binding = 0) uniform DynamicUniformBufferObject
 {
     mat4 model;
+    mat4 norm;
+} dynamicUbo;
+
+// Static uniform data
+layout(binding = 1) uniform StaticUniformBufferObject
+{
     mat4 view;
     mat4 proj;
-    mat4 norm;
-
-    vec3 cameraPos;
-    vec3 lightPos;
-    vec3 lightDiffuseColor;
-} ubo;
+} staticUbo;
 
 // Vertex attributes
 layout(location = 0) in vec3 inPosition;
@@ -32,12 +34,12 @@ out gl_PerVertex
 
 void main()
 {
-    vec4 worldPos = ubo.model * ubo.view * vec4(inPosition, 1.0);
+    vec4 worldPos = dynamicUbo.model * staticUbo.view * vec4(inPosition, 1.0);
     
     fragPosition = vec3(worldPos) / worldPos.w;
-    fragNormal = vec3(ubo.norm * vec4(inNormal, 0.0));
+    fragNormal = vec3(dynamicUbo.norm * vec4(inNormal, 0.0));
     fragColor = inColor;
     fragTexCoord = inTexCoord;
 
-    gl_Position = ubo.proj * worldPos;
+    gl_Position = staticUbo.proj * worldPos;
 }
