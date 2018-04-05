@@ -35,8 +35,6 @@
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
-// const std::string TEXTURE_PATH = "textures/texture.png";
-
 const std::vector<const char*> validationLayers = { "VK_LAYER_LUNARG_standard_validation" };
 
 #ifdef NDEBUG
@@ -101,6 +99,9 @@ public:
     {
         initWindow();
         initVulkan();
+
+        prevFrameTime = std::chrono::high_resolution_clock::now();
+
         mainLoop();
         cleanup();
     }
@@ -167,6 +168,9 @@ private:
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
 
+    std::chrono::high_resolution_clock::time_point prevFrameTime;
+    std::chrono::high_resolution_clock::time_point currentFrameTime;
+
     struct Object
     {
         uint32_t firstIndex;
@@ -174,6 +178,65 @@ private:
     };
 
     std::vector<Object> objects;
+
+    struct Camera
+    {
+        glm::vec3 position = glm::vec3(-4.0f, 4.0f, -8.0f);
+        glm::vec3 viewDir = glm::vec3(0.0f, 0.0f, 1.0f);
+        glm::vec3 center = position + viewDir;
+        glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
+
+        glm::vec3 velocity = glm::vec3(0.0f, 0.0f, 0.0f);
+
+        float moveSpeedFactor = 8.0;
+
+        void updateCamera(GLFWwindow* window, float deltaTime)
+        {
+            glm::vec3 movement;
+
+            position += velocity;
+            center = position + viewDir;
+
+            if (glfwGetKey(window, GLFW_KEY_W) != GLFW_RELEASE)
+            {
+                movement += glm::vec3(0.0f, 0.0f, 1.0f);
+            }
+
+            if (glfwGetKey(window, GLFW_KEY_A) != GLFW_RELEASE)
+            {
+                movement += glm::vec3(1.0f, 0.0f, 0.0f);
+            }
+
+            if (glfwGetKey(window, GLFW_KEY_S) != GLFW_RELEASE)
+            {
+                movement += glm::vec3(0.0f, 0.0f, -1.0f);
+            }
+
+            if (glfwGetKey(window, GLFW_KEY_D) != GLFW_RELEASE)
+            {
+                movement += glm::vec3(-1.0f, 0.0f, 0.0f);
+            }
+
+            if (glfwGetKey(window, GLFW_KEY_Q) != GLFW_RELEASE)
+            {
+                movement += glm::vec3(0.0f, -1.0f, 0.0f);
+            }
+
+            if (glfwGetKey(window, GLFW_KEY_E) != GLFW_RELEASE)
+            {
+                movement += glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+
+            glm::normalize(movement);
+
+            float moveFactor = moveSpeedFactor * deltaTime;
+            movement *= moveFactor;
+
+            position += movement;
+        }
+    };
+
+    Camera camera; 
 
     void initWindow()
     {
@@ -196,6 +259,8 @@ private:
         createInstance();
         setupDebugCallback();
         createSurface();
+
+        // camera = new Camera(window);
 
         DeviceManager::instance().pickPhysicalDevice(instance, surface);
         DeviceManager::instance().createLogicalDevice(surface, graphicsQueue, presentQueue, enableValidationLayers, validationLayers);
@@ -341,7 +406,7 @@ private:
 
         if (vkCreateRenderPass(DeviceManager::instance().getDevice(), &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) 
         {
-            throw std::runtime_error("failed to create render pass!");
+            throw std::runtime_error("Error: Failed to create render pass");
         }
     }
 
@@ -1317,8 +1382,15 @@ private:
         while (!glfwWindowShouldClose(window))
         {
             glfwPollEvents();
+
+            currentFrameTime = std::chrono::high_resolution_clock::now();
+            float time = std::chrono::duration<float, std::chrono::seconds::period>(currentFrameTime - prevFrameTime).count();
+
+            camera.updateCamera(window, time);
             updateUniformBuffer();
             drawFrame();
+
+            prevFrameTime = currentFrameTime;
         }
 
         vkDeviceWaitIdle(DeviceManager::instance().getDevice());
@@ -1334,9 +1406,9 @@ private:
         VkExtent2D swapchainExtent = SwapchainManager::instance().getExtent();
 
         // View matrix
-        glm::mat4 view = glm::lookAt(glm::vec3(-4.0f, 4.0f, -8.0f),  // Camera position
-                                     glm::vec3(0.0f, 0.0f, 0.0f),  // Coordinates to look at
-                                     glm::vec3(0.0f, 1.0f, 0.0f)); // Up vector
+        glm::mat4 view = glm::lookAt(camera.position,  // Camera position
+                                     camera.center,  // Coordinates to look at
+                                     camera.up); // Up vector
 
         // Projection matrix - 45 degree fov, aspect ratio and near/far planes
         glm::mat4 proj = glm::perspective(glm::radians(45.0f), 
@@ -1352,7 +1424,7 @@ private:
         // Model matrix - rotate main model 45 degrees per second
         UniformManager::DynamicUbo ubo1 = UniformManager::createDynamicUbo(glm::rotate(glm::mat4(1.0f), 
                                                                                        time * glm::radians(90.0f), 
-                                                                                       glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(3.0f, 3.0f, 3.0f)), 
+                                                                                       glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(2.0f, 2.0f, 2.0f)), 
                                                                            view);
 
         // Model matrix - translate ground plane below main model
@@ -1686,7 +1758,7 @@ private:
         // Create Vulkan instance, throw error if creation returns failure
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
         {
-            throw std::runtime_error("failed to create instance!");
+            throw std::runtime_error("Error: Failed to create instance");
         }
 
         std::cout << "Vulkan instance created." << std::endl;
