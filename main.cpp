@@ -19,6 +19,7 @@
 #include "UniformManager.h"
 #include "DeviceManager.h"
 #include "SwapchainManager.h"
+#include "Camera.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -178,63 +179,6 @@ private:
     };
 
     std::vector<Object> objects;
-
-    struct Camera
-    {
-        glm::vec3 position = glm::vec3(-4.0f, 4.0f, -8.0f);
-        glm::vec3 viewDir = glm::vec3(0.0f, 0.0f, 1.0f);
-        glm::vec3 center = position + viewDir;
-        glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
-
-        glm::vec3 velocity = glm::vec3(0.0f, 0.0f, 0.0f);
-
-        float moveSpeedFactor = 8.0;
-
-        void updateCamera(GLFWwindow* window, float deltaTime)
-        {
-            glm::vec3 movement;
-
-            position += velocity;
-            center = position + viewDir;
-
-            if (glfwGetKey(window, GLFW_KEY_W) != GLFW_RELEASE)
-            {
-                movement += glm::vec3(0.0f, 0.0f, 1.0f);
-            }
-
-            if (glfwGetKey(window, GLFW_KEY_A) != GLFW_RELEASE)
-            {
-                movement += glm::vec3(1.0f, 0.0f, 0.0f);
-            }
-
-            if (glfwGetKey(window, GLFW_KEY_S) != GLFW_RELEASE)
-            {
-                movement += glm::vec3(0.0f, 0.0f, -1.0f);
-            }
-
-            if (glfwGetKey(window, GLFW_KEY_D) != GLFW_RELEASE)
-            {
-                movement += glm::vec3(-1.0f, 0.0f, 0.0f);
-            }
-
-            if (glfwGetKey(window, GLFW_KEY_Q) != GLFW_RELEASE)
-            {
-                movement += glm::vec3(0.0f, -1.0f, 0.0f);
-            }
-
-            if (glfwGetKey(window, GLFW_KEY_E) != GLFW_RELEASE)
-            {
-                movement += glm::vec3(0.0f, 1.0f, 0.0f);
-            }
-
-            glm::normalize(movement);
-
-            float moveFactor = moveSpeedFactor * deltaTime;
-            movement *= moveFactor;
-
-            position += movement;
-        }
-    };
 
     Camera camera; 
 
@@ -1406,9 +1350,7 @@ private:
         VkExtent2D swapchainExtent = SwapchainManager::instance().getExtent();
 
         // View matrix
-        glm::mat4 view = glm::lookAt(camera.position,  // Camera position
-                                     camera.center,  // Coordinates to look at
-                                     camera.up); // Up vector
+        glm::mat4 view = camera.getViewMatrix();
 
         // Projection matrix - 45 degree fov, aspect ratio and near/far planes
         glm::mat4 proj = glm::perspective(glm::radians(45.0f), 
