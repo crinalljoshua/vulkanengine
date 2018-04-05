@@ -34,7 +34,9 @@ out gl_PerVertex
 
 void main()
 {
-    vec4 worldPos = dynamicUbo.model * staticUbo.view * vec4(inPosition, 1.0);
+    // vec4 worldPos = dynamicUbo.model * staticUbo.view * staticUbo.proj * vec4(inPosition, 1.0);
+    vec4 worldPos = staticUbo.view * dynamicUbo.model * vec4(inPosition, 1.0);
+    // vec4 worldPos = dynamicUbo.model * vec4(inPosition, 1.0);
     
     fragPosition = vec3(worldPos) / worldPos.w;
     fragNormal = vec3(dynamicUbo.norm * vec4(inNormal, 0.0));
